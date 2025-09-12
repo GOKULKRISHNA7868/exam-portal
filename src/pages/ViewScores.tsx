@@ -175,7 +175,7 @@ const ViewScores = () => {
       <div className="relative rounded-2xl p-6 bg-[#eff1f6] shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:bg-slate-800 dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)]">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6 flex items-center">
           <Trophy className="w-6 h-6 text-blue-600 mr-2" />
-          Top Performers
+          Top Three Performers
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {topPerformers.map((user, index) => (
