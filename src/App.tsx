@@ -12,6 +12,7 @@ import CodingRound from "./pages/CodingRound";
 import MCQRound from "./pages/MCQRound";
 import ViewScores from "./pages/ViewScores";
 import CommunicationRound from "./pages/CommunicationRound";
+import QuestionBank from "./pages/QuestionBank";
 import Takecomm from "./pages/Takecomm";
 function App() {
   const { user, loading, userRole } = useAuthStore();
@@ -53,6 +54,7 @@ function App() {
             <>
               <Route index element={<Dashboard />} />
               <Route path="ViewScores" element={<ViewScores />} />
+              <Route path="questions" element={<QuestionBank />} />
               <Route path="users" element={<UserManagement />} />
               <Route path="CommunicationRound" element={<CommunicationRound/>}/>
               <Route path="settings" element={<Settings />} />

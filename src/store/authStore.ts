@@ -42,6 +42,20 @@ export const useAuthStore = create<AuthState>((set) => ({
   userRole: 'user',
   signIn: async (email: string, password: string) => {
     try {
+      // Prevent sign-in for regular users if lockout is active
+      const lockoutUntilRaw = localStorage.getItem('exam_lockout_until');
+      if (lockoutUntilRaw) {
+        const lockoutUntil = parseInt(lockoutUntilRaw, 10);
+        if (!Number.isNaN(lockoutUntil) && Date.now() < lockoutUntil) {
+          const msRemaining = lockoutUntil - Date.now();
+          const minutes = Math.floor(msRemaining / 60000);
+          const seconds = Math.ceil((msRemaining % 60000) / 1000);
+          const timeLeft = `${minutes}m ${seconds}s`;
+          toast.error(`Access locked due to violations. Try again in ${timeLeft}.`);
+          throw new Error('User is currently locked out');
+        }
+      }
+
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const userRole = getUserRole(userCredential.user.email);
       set({ user: userCredential.user, userRole });

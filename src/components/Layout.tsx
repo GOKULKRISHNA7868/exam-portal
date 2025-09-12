@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 
@@ -35,12 +35,25 @@ function Layout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<string[]>([]);
 
+  // Violation tracking for non-admin users
+  const violationCountRef = useRef<number>(0);
+  const lastVisibilityChangeRef = useRef<number>(0);
+  const fullScreenRequestedRef = useRef<boolean>(false);
+
   const isActive = (path: string) => location.pathname === path;
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const toggleCollapse = () => setIsCollapsed(!isCollapsed);
   const closeSidebar = () => setIsSidebarOpen(false);
   const toggleNotifications = () => setShowNotifications(!showNotifications);
+
+  // Auto-collapse sidebar when on coding round
+  useEffect(() => {
+    if (location.pathname === '/CodingRound') {
+      setIsCollapsed(true);
+      setIsSidebarOpen(false);
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -66,6 +79,105 @@ function Layout() {
     return () => unsub();
   }, [user?.uid]);
 
+  // Request fullscreen and set up proctoring for regular users
+  useEffect(() => {
+    if (!user) return;
+    if (userRole !== 'user') return; // Only enforce for non-admin users
+
+    // If there is a past lockout, ensure it is respected at runtime as well
+    const lockoutUntilRaw = localStorage.getItem('exam_lockout_until');
+    if (lockoutUntilRaw) {
+      const lockoutUntil = parseInt(lockoutUntilRaw, 10);
+      if (!Number.isNaN(lockoutUntil) && Date.now() < lockoutUntil) {
+        // Immediately sign out and block access
+        import('react-hot-toast').then(({ default: toast }) => {
+          toast.error('Access locked due to prior violations. Try later.');
+        });
+        signOut();
+        return;
+      }
+    }
+
+    const requestFullscreenIfNeeded = async () => {
+      try {
+        if (document.fullscreenElement) return;
+        const elem = document.documentElement as any;
+        if (elem.requestFullscreen) {
+          await elem.requestFullscreen();
+          fullScreenRequestedRef.current = true;
+        } else if (elem.webkitRequestFullscreen) {
+          await elem.webkitRequestFullscreen();
+          fullScreenRequestedRef.current = true;
+        } else if (elem.msRequestFullscreen) {
+          await elem.msRequestFullscreen();
+          fullScreenRequestedRef.current = true;
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    // Initiate fullscreen on mount (best-effort; some browsers require user gesture)
+    requestFullscreenIfNeeded();
+
+    let violationCount = 0;
+    violationCountRef.current = 0;
+
+    const handleViolation = (reason: string) => {
+      violationCount += 1;
+      violationCountRef.current = violationCount;
+      import('react-hot-toast').then(({ default: toast }) => {
+        toast.error(`Screen change detected (${reason}). Attempt ${violationCount}/5`);
+      });
+
+      if (violationCount >= 5) {
+        const tenMinutesMs = 10 * 60 * 1000;
+        const until = Date.now() + tenMinutesMs;
+        localStorage.setItem('exam_lockout_until', String(until));
+        import('react-hot-toast').then(({ default: toast }) => {
+          toast.error('Too many violations. Locked for 10 minutes.');
+        });
+        // Optional: exit fullscreen
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+        signOut();
+      }
+    };
+
+    const onVisibilityChange = () => {
+      const now = Date.now();
+      // Debounce rapid duplicate events
+      if (now - lastVisibilityChangeRef.current < 500) return;
+      lastVisibilityChangeRef.current = now;
+      if (document.hidden) {
+        handleViolation('tab hidden');
+      }
+    };
+
+    const onBlur = () => {
+      handleViolation('window blur');
+    };
+
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement && fullScreenRequestedRef.current) {
+        handleViolation('exited fullscreen');
+        // Try re-entering fullscreen
+        requestFullscreenIfNeeded();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+    };
+  }, [user, userRole, signOut]);
+
   // Define all navigation items
   const allNavigationItems = [
     {
@@ -79,6 +191,12 @@ function Layout() {
       icon: Trophy,
       label: "View Scores",
       roles: ['hr'] // Only HR can see View Scores
+    },
+    {
+      path: "/questions",
+      icon: CheckSquare,
+      label: "Question Bank",
+      roles: ['hr']
     },
     {
       path: "/MCQRound",

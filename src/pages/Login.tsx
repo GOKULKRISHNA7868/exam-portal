@@ -47,17 +47,18 @@ function Login() {
           </div>
           
           <div className="space-y-4">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Exam Portal
-            </h1>
-            <p className="text-lg text-gray-600 leading-relaxed">
-              Welcome to our comprehensive examination platform. Take your assessments with confidence and track your progress.
-            </p>
-            <div className="flex items-center justify-center space-x-6 mt-8">
-              
-              
-            </div>
-          </div>
+  <h1 className="text-4xl font-bold bg-gradient-to-r from-[#9eea9e] to-[#5dc55d] bg-clip-text text-transparent">
+    Exam Portal
+  </h1>
+  <p className="text-lg text-gray-700 leading-relaxed">
+    Welcome to our comprehensive examination platform. Take your assessments with confidence and track your progress.
+  </p>
+
+  <div className="flex items-center justify-center space-x-6 mt-8">
+    {/* You can add buttons or links here */}
+  </div>
+</div>
+
         </div>
 
         {/* Right Panel - Enhanced Login Form */}
@@ -106,23 +107,24 @@ function Login() {
 
               {/* Submit */}
               <button
-                type="submit"
-                disabled={isLoading}
-                className={`w-full py-4 rounded-xl text-white font-semibold transition-all duration-300 transform ${
-                  isLoading
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 hover:scale-[1.02] hover:shadow-lg"
-                }`}
-              >
-                {isLoading ? (
-                  <div className="flex items-center justify-center space-x-2">
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Signing in...</span>
-                  </div>
-                ) : (
-                  "SIGN IN"
-                )}
-              </button>
+  type="submit"
+  disabled={isLoading}
+  className={`w-full py-4 rounded-xl text-white font-semibold transition-all duration-300 transform ${
+    isLoading
+      ? "bg-gray-400 cursor-not-allowed"
+      : "bg-[#9eea9e] hover:bg-[#B8FFB8] hover:scale-[1.02] hover:shadow-lg"
+  }`}
+>
+  {isLoading ? (
+    <div className="flex items-center justify-center space-x-2">
+      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+      <span>Logging in...</span>
+    </div>
+  ) : (
+    "LOG IN"
+  )}
+</button>
+
             </form>
 
             {/* Footer */}

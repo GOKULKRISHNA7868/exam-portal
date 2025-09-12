@@ -1,24 +1,8 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { motion } from "framer-motion";
-import {
-  Trophy,
-  User,
-  CheckCircle,
-  XCircle,
-  Code,
-  FileText,
-  Eye,
-  Download,
-  Filter,
-  Search,
-  Medal,
-  Target,
-  TrendingUp,
-  Star,
-  BarChart3,
-} from "lucide-react";
+import { Trophy, User, CheckCircle, XCircle, Code, FileText, Eye, Download, Search, BarChart3 } from "lucide-react";
 
 interface User {
   uid: string;
@@ -47,14 +31,29 @@ const ViewScores = () => {
       try {
         const resSnap = await getDocs(collection(db, "responses"));
         const list: User[] = [];
-        
+
         for (const res of resSnap.docs) {
           const uid = res.id;
           const data = res.data();
 
-          // Fetch employee details
-          const empSnap = await getDoc(doc(db, "employees", uid));
-          const emp = empSnap.exists() ? empSnap.data() : { name: "Unknown", email: "unknown@example.com" };
+          // Prefer canonical user profile from `users` collection (doc id == auth UID)
+          let displayName = "Unknown";
+          let displayEmail = "unknown@example.com";
+
+          const userSnap = await getDoc(doc(db, "users", uid));
+          if (userSnap.exists()) {
+            const u = userSnap.data() as any;
+            displayName = u.fullName || u.name || u.email || "Unknown";
+            displayEmail = u.email || displayEmail;
+          } else {
+            // Fallback: try employees doc with same id (legacy)
+            const empSnap = await getDoc(doc(db, "employees", uid));
+            if (empSnap.exists()) {
+              const emp = empSnap.data() as any;
+              displayName = emp.name || displayName;
+              displayEmail = emp.email || displayEmail;
+            }
+          }
 
           // Round1
           const round1 = data.round1 || {};
@@ -81,14 +80,14 @@ const ViewScores = () => {
 
           // overall percentage (based on MCQ + coding combined)
           const totalPossible = r1Correct + r1Wrong + r2Total;
-          const overallPercentage = totalPossible > 0 
-            ? Math.round(((r1Score + r2Passed) / totalPossible) * 100) 
+          const overallPercentage = totalPossible > 0
+            ? Math.round(((r1Score + r2Passed) / totalPossible) * 100)
             : 0;
 
           list.push({
             uid,
-            name: emp.name,
-            email: emp.email,
+            name: displayName,
+            email: displayEmail,
             round1: { ...round1 },
             round2,
             totalScore,
@@ -98,7 +97,7 @@ const ViewScores = () => {
             overallPercentage,
           });
         }
-        
+
         setUsers(list);
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -106,15 +105,15 @@ const ViewScores = () => {
         setLoading(false);
       }
     };
-    
+
     fetchData();
   }, []);
 
   const filteredAndSortedUsers = users
     .filter(user => {
       const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           user.email.toLowerCase().includes(searchTerm.toLowerCase());
-      
+        user.email.toLowerCase().includes(searchTerm.toLowerCase());
+
       if (filterByRound === "round1") return matchesSearch && user.round1.score > 0;
       if (filterByRound === "round2") return matchesSearch && user.round2.length > 0;
       return matchesSearch;
@@ -157,24 +156,19 @@ const ViewScores = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <motion.h1 
+          <motion.h1
             className="text-3xl font-bold text-slate-900 dark:text-white"
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            Exam Scores Dashboard
+            Exam Scores 
           </motion.h1>
           <p className="mt-1 text-slate-600 dark:text-slate-400">
-            Comprehensive view of student performance across all rounds
+            
           </p>
         </div>
+
         
-        <div className="mt-4 sm:mt-0 flex gap-3">
-          <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl">
-            <Download className="w-4 h-4 mr-2" />
-            Export Results
-          </button>
-        </div>
       </div>
 
       {/* Top Performers */}
@@ -196,9 +190,8 @@ const ViewScores = () => {
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold bg-[#f3f5fa] shadow-[inset_3px_3px_6px_rgba(0,0,0,0.08),inset_-3px_-3px_6px_#ffffff] dark:bg-slate-700`}>
                   {index + 1}
                 </div>
-                <div className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                  getPerformanceBadge(user.overallPercentage).color
-                }`}>
+                <div className={`px-2 py-1 rounded-full text-xs font-semibold ${getPerformanceBadge(user.overallPercentage).color
+                  }`}>
                   {user.overallPercentage}%
                 </div>
               </div>
@@ -228,7 +221,7 @@ const ViewScores = () => {
               />
             </div>
           </div>
-          
+
           <div className="flex gap-4">
             <select
               value={sortBy}
@@ -239,7 +232,7 @@ const ViewScores = () => {
               <option value="overallPercentage">Sort by Percentage</option>
               <option value="name">Sort by Name</option>
             </select>
-            
+
             <select
               value={filterByRound}
               onChange={(e) => setFilterByRound(e.target.value as any)}
@@ -261,7 +254,7 @@ const ViewScores = () => {
             Detailed Results ({filteredAndSortedUsers.length} students)
           </h2>
         </div>
-        
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-[#f3f5fa] dark:bg-slate-700">
@@ -312,7 +305,7 @@ const ViewScores = () => {
                         </div>
                       </div>
                     </td>
-                    
+
                     <td className="px-6 py-4 text-center">
                       <div className="space-y-1">
                         <div className="flex items-center justify-center space-x-4">
@@ -328,7 +321,7 @@ const ViewScores = () => {
                         <div className="text-sm font-semibold">Score: {user.round1.score}</div>
                       </div>
                     </td>
-                    
+
                     <td className="px-6 py-4 text-center">
                       {user.r2Total > 0 ? (
                         <div className="space-y-1">
@@ -343,13 +336,13 @@ const ViewScores = () => {
                         <span className="text-gray-400 dark:text-gray-500 text-sm">Not attempted</span>
                       )}
                     </td>
-                    
+
                     <td className="px-6 py-4 text-center">
                       <div className="text-xl font-bold text-slate-800 dark:text-blue-400">
                         {user.totalScore}
                       </div>
                     </td>
-                    
+
                     <td className="px-6 py-4 text-center">
                       <div className="space-y-2">
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${badge.color}`}>
@@ -360,7 +353,7 @@ const ViewScores = () => {
                         </div>
                       </div>
                     </td>
-                    
+
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => setSelectedUser(user)}
@@ -375,7 +368,7 @@ const ViewScores = () => {
               })}
             </tbody>
           </table>
-          
+
           {filteredAndSortedUsers.length === 0 && (
             <div className="text-center py-12">
               <User className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -448,7 +441,7 @@ const ViewScores = () => {
                   <FileText className="w-5 h-5 mr-2 text-blue-600" />
                   Round 1 (MCQ) - Detailed Answers
                 </h4>
-                
+
                 {selectedUser.round1.answers ? (
                   <div className="space-y-3">
                     {Object.entries(selectedUser.round1.answers).map(([qid, ans]: any) => (
@@ -480,7 +473,7 @@ const ViewScores = () => {
                   <Code className="w-5 h-5 mr-2 text-green-600" />
                   Round 2 (Coding) - Solutions
                 </h4>
-                
+
                 {selectedUser.round2.length > 0 ? (
                   <div className="space-y-4">
                     {selectedUser.round2.map((solution: any) => (
@@ -489,15 +482,14 @@ const ViewScores = () => {
                           <h5 className="font-medium text-gray-900 dark:text-white">
                             Problem: {solution.problemId}
                           </h5>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            solution.result === "Passed" 
-                              ? "bg-green-100 text-green-800" 
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${solution.result === "Passed"
+                              ? "bg-green-100 text-green-800"
                               : "bg-red-100 text-red-800"
-                          }`}>
+                            }`}>
                             {solution.result}
                           </span>
                         </div>
-                        
+
                         <div className="space-y-2 text-sm">
                           <div>
                             <span className="text-gray-600 dark:text-gray-400">Test Cases: </span>
@@ -506,7 +498,7 @@ const ViewScores = () => {
                               ({solution.percentage || 0}%)
                             </span>
                           </div>
-                          
+
                           <details className="mt-3">
                             <summary className="cursor-pointer text-blue-600 hover:text-blue-700 font-medium">
                               View Code Solution

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getAuth } from "firebase/auth";
-import { db } from "../lib/firebase";
+import { db, getServerTime } from "../lib/firebase";
 import { collection, getDocs, setDoc, doc, getDoc } from "firebase/firestore";
 import { motion } from "framer-motion";
 import Editor from "@monaco-editor/react";
@@ -12,7 +12,7 @@ import {
   Zap,
   Code,
   Terminal,
-  Settings,
+  // Settings,
   Save,
   Eye,
   EyeOff,
@@ -22,7 +22,7 @@ import {
   AlertTriangle,
   Shield,
   Monitor,
-  Maximize,
+  // Maximize,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -122,12 +122,13 @@ const CodingRoundPage = () => {
   const [stderr, setStderr] = useState<string>("");
   const [statusText, setStatusText] = useState<string>("");
   const [timeUsed, setTimeUsed] = useState<string>("");
-  const [memUsed, setMemUsed] = useState<string>("");
+  // Track memory if needed in future
+  // const [memUsed, setMemUsed] = useState<string>("");
 
   const [loading, setLoading] = useState(false);
   const [autoRun, setAutoRun] = useState(true);
   const [runningNow, setRunningNow] = useState(false);
-  const debounceRef = useRef<number | null>(null);
+  // const debounceRef = useRef<number | null>(null);
 
   // Exam state
   const [acceptedRules, setAcceptedRules] = useState(false);
@@ -153,6 +154,8 @@ const CodingRoundPage = () => {
   // UI state
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [showTestCases, setShowTestCases] = useState(false);
+  const [remainingSec, setRemainingSec] = useState<number | null>(null);
+  const warnShownRef = useRef(false);
 
   useEffect(() => {
     const checkRoundCompletion = async () => {
@@ -173,12 +176,31 @@ const CodingRoundPage = () => {
     const loadQuestions = async () => {
       if (!uid) return;
 
-      const snaps = await getDocs(collection(db, "questions"));
+      const [snaps, now] = await Promise.all([getDocs(collection(db, "questions")), getServerTime()]);
       const list = snaps.docs
         .map((d) => ({ id: d.id, ...(d.data() as any) }))
-        .filter((q: Question) => q.type === "code" && (q.assignedTo || []).includes(uid)) as Question[];
+        .filter((q: any) => {
+          if (q.type !== "code") return false;
+          const assigned = Array.isArray(q.assignedTo) ? q.assignedTo : [];
+          const inAssignees = assigned.includes(uid);
+          const startOk = !q.startAt || (q.startAt?.toDate?.() || new Date(q.startAt)) <= now;
+          const endOk = !q.endAt || (q.endAt?.toDate?.() || new Date(q.endAt)) >= now;
+          return inAssignees && startOk && endOk;
+        }) as Question[];
 
       setQuestions(list);
+
+      // derive earliest end time across loaded coding questions
+      const ends: number[] = list
+        .map((q: any) => q.endAt ? (q.endAt?.toDate?.()?.getTime?.() || new Date(q.endAt).getTime()) : Infinity)
+        .filter((n: number) => Number.isFinite(n));
+      if (ends.length > 0) {
+        const earliest = Math.min(...ends);
+        const baseRemaining = Math.max(0, Math.floor((earliest - now.getTime()) / 1000));
+        setRemainingSec(baseRemaining);
+      } else {
+        setRemainingSec(null);
+      }
 
       const initialCode: Record<string, string> = {};
       for (const q of list) {
@@ -218,7 +240,6 @@ const CodingRoundPage = () => {
     setStderr("");
     setStatusText("");
     setTimeUsed("");
-    setMemUsed("");
     setPerTestResults([]);
   };
 
@@ -463,6 +484,35 @@ out, err
     }
   };
 
+  // Global countdown based on end time: 1-minute warning and auto-submit current question if any
+  useEffect(() => {
+    if (roundCompleted) return;
+    if (remainingSec == null) return;
+    const id = window.setInterval(() => {
+      setRemainingSec((s) => {
+        if (s == null) return s;
+        const next = s - 1;
+        if (next === 60 && !warnShownRef.current) {
+          warnShownRef.current = true;
+          if (soundEnabled) {
+            const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj");
+            audio.play().catch(() => {});
+          }
+        }
+        if (next <= 0) {
+          window.clearInterval(id);
+          // Auto-submit current question if not yet submitted
+          if (currentQuestion && !submittedQuestions.has(currentQuestion.id)) {
+            submit();
+          }
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [remainingSec, roundCompleted, currentQuestion, submittedQuestions, soundEnabled]);
+
   // Anti-cheat system
   const requestFullscreen = async () => {
     const el = document.documentElement as any;
@@ -476,16 +526,16 @@ out, err
     }
   };
 
-  const exitFullscreen = async () => {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-        setShowFullscreen(false);
-      }
-    } catch {
-      // ignore
-    }
-  };
+  // const exitFullscreen = async () => {
+  //   try {
+  //     if (document.fullscreenElement) {
+  //       await document.exitFullscreen();
+  //       setShowFullscreen(false);
+  //     }
+  //   } catch {
+  //     // ignore
+  //   }
+  // };
 
   // Timer
   useEffect(() => {
@@ -572,6 +622,32 @@ out, err
            
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Round 2 — Coding Test</h1>
             <p className="text-slate-600 dark:text-slate-400">Secure Programming Assessment</p>
+            
+            {/* Timing Information */}
+            {questions.length > 0 && (
+              <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                <div className="flex items-center justify-center space-x-4 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-blue-600" />
+                    <span className="text-blue-800 dark:text-blue-300">
+                      {questions[0]?.startAt ? 
+                        `Starts: ${questions[0].startAt.toDate?.()?.toLocaleString() || new Date(questions[0].startAt).toLocaleString()}` : 
+                        'No start time set'
+                      }
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-red-600" />
+                    <span className="text-red-800 dark:text-red-300">
+                      {questions[0]?.endAt ? 
+                        `Ends: ${questions[0].endAt.toDate?.()?.toLocaleString() || new Date(questions[0].endAt).toLocaleString()}` : 
+                        'No end time set'
+                      }
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           
           <div className="space-y-4 mb-8">

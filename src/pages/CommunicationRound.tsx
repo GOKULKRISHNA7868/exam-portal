@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { collection, addDoc, updateDoc, doc, getDocs, serverTimestamp } from "firebase/firestore";
 import { motion } from "framer-motion";
-import { MessageCircle, Users, Plus, Send, Edit3, Trash2, Clock, FileText, Eye, Calendar, Target } from "lucide-react";
+import { Users, Plus, Send, Edit3, Trash2, Clock, FileText, Eye, Calendar, Target } from "lucide-react";
 
 const CommunicationRound: React.FC = () => {
   const [title, setTitle] = useState("");
@@ -14,6 +14,8 @@ const CommunicationRound: React.FC = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [existingTests, setExistingTests] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [startAt, setStartAt] = useState("");
+  const [endAt, setEndAt] = useState("");
 
   // NEW: view & edit state
   const [viewTest, setViewTest] = useState<any | null>(null);
@@ -76,6 +78,10 @@ const CommunicationRound: React.FC = () => {
       alert("Please select at least one employee");
       return;
     }
+    if (!startAt || !endAt) {
+      alert("Please set Start Time and End Time");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -87,6 +93,8 @@ const CommunicationRound: React.FC = () => {
           instructions,
           questions: questions.filter(q => q.trim()),
           assigned: selectedEmployees,
+          ...(startAt ? { startAt: new Date(startAt) } : {}),
+          ...(endAt ? { endAt: new Date(endAt) } : {}),
           updatedAt: serverTimestamp(),
         });
         alert("Test updated successfully!");
@@ -100,6 +108,8 @@ const CommunicationRound: React.FC = () => {
           assigned: selectedEmployees,
           createdAt: serverTimestamp(),
           status: "active",
+          ...(startAt ? { startAt: new Date(startAt) } : {}),
+          ...(endAt ? { endAt: new Date(endAt) } : {}),
         });
         alert("Communication test created and assigned successfully!");
       }
@@ -122,6 +132,8 @@ const CommunicationRound: React.FC = () => {
     setQuestions([""]);
     setSelectedEmployees([]);
     setEditTestId(null);
+    setStartAt("");
+    setEndAt("");
   };
 
   const handleSelectEmployee = (id: string) => {
@@ -149,6 +161,8 @@ const CommunicationRound: React.FC = () => {
     setQuestions(test.questions || [""]);
     setSelectedEmployees(test.assigned || []);
     setEditTestId(test.id);
+    setStartAt(test.startAt?.toDate?.()?.toISOString?.().slice(0,16) || "");
+    setEndAt(test.endAt?.toDate?.()?.toISOString?.().slice(0,16) || "");
     setShowCreateForm(true);
   };
 
@@ -433,6 +447,28 @@ const CommunicationRound: React.FC = () => {
                     value={instructions}
                     onChange={(e) => setInstructions(e.target.value)}
                     rows={4}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {/* Scheduling (optional) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Start Time (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={startAt}
+                    onChange={(e) => setStartAt(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">End Time (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={endAt}
+                    onChange={(e) => setEndAt(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   />
                 </div>

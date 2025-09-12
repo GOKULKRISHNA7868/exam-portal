@@ -1,16 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   collection,
   getDocs,
-  query,
-  where,
   doc,
   setDoc,
   getDoc,
 } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { db, getServerTime } from "../lib/firebase";
 import { getAuth } from "firebase/auth";
 import { motion } from "framer-motion";
+import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import {
   CheckCircle,
@@ -22,12 +21,10 @@ import {
   Send,
   ChevronLeft,
   ChevronRight,
-  Trophy,
   FileText,
   User,
   Volume2,
   VolumeX,
-  Maximize,
   BookOpen,
   Target,
 } from "lucide-react";
@@ -50,6 +47,8 @@ const MCQRoundPage = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [remainingSec, setRemainingSec] = useState<number | null>(null);
+  const warnShownRef = useRef(false);
 
   const timerRef = React.useRef<number | null>(null);
 
@@ -67,15 +66,33 @@ const MCQRoundPage = () => {
   useEffect(() => {
     const fetchQuestions = async () => {
       if (!user) return;
-      const qSnap = await getDocs(
-        query(
-          collection(db, "questions"),
-          where("type", "==", "mcq"),
-          where("assignedTo", "array-contains", user.uid)
-        )
-      );
-      const list = qSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      // Fetch all questions and filter client-side: include mcq assigned to user OR with assignedTo missing/empty (global)
+      const now = await getServerTime();
+      const qSnap = await getDocs(collection(db, "questions"));
+      const list = qSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as any))
+        .filter((q: any) => {
+          if (q.type !== "mcq") return false;
+          const assigned = Array.isArray(q.assignedTo) ? q.assignedTo : [];
+          const hasAssignment = assigned.length > 0;
+          const inAssignees = !hasAssignment || assigned.includes(user.uid);
+          const startOk = !q.startAt || (q.startAt?.toDate?.() || new Date(q.startAt)) <= now;
+          const endOk = !q.endAt || (q.endAt?.toDate?.() || new Date(q.endAt)) >= now;
+          return inAssignees && startOk && endOk;
+        });
       setQuestions(list);
+
+      // Setup countdown to earliest end time among loaded questions (if any)
+      const ends: number[] = list
+        .map((q: any) => q.endAt ? (q.endAt?.toDate?.()?.getTime?.() || new Date(q.endAt).getTime()) : Infinity)
+        .filter((n: number) => Number.isFinite(n));
+      if (ends.length > 0) {
+        const earliest = Math.min(...ends);
+        const baseRemaining = Math.max(0, Math.floor((earliest - now.getTime()) / 1000));
+        setRemainingSec(baseRemaining);
+      } else {
+        setRemainingSec(null);
+      }
     };
     fetchQuestions();
   }, [user]);
@@ -239,16 +256,11 @@ const MCQRoundPage = () => {
 
       setSubmitted(true);
       await exitFullscreen();
-      
+
       if (soundEnabled) {
         const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj");
         audio.play().catch(() => {});
       }
-
-      // Show success message
-      setTimeout(() => {
-        navigate("/thank-you");
-      }, 2000);
     } catch (error) {
       console.error("Submission failed:", error);
       setWarningMsg("Submission failed. Please try again.");
@@ -286,6 +298,35 @@ const MCQRoundPage = () => {
   const answeredCount = Object.keys(answers).length;
   const progressPercentage = questions.length > 0 ? (answeredCount / questions.length) * 100 : 0;
 
+  // Global countdown based on end time with 1-minute warning and auto-submit
+  useEffect(() => {
+    if (submitted) return;
+    if (remainingSec == null) return;
+    const id = window.setInterval(() => {
+      setRemainingSec((s) => {
+        if (s == null) return s;
+        const next = s - 1;
+        if (next === 60 && !warnShownRef.current) {
+          warnShownRef.current = true;
+          toast("MCQ ends in 1 minute!", { icon: "⏰" });
+          if (soundEnabled) {
+            const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj");
+            audio.play().catch(() => {});
+          }
+        }
+        if (next <= 0) {
+          window.clearInterval(id);
+          if (!submitted) {
+            handleSubmit();
+          }
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [remainingSec, submitted, soundEnabled]);
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-96 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
@@ -300,20 +341,36 @@ const MCQRoundPage = () => {
   if (submitted) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-3xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] p-8 border border-white/20 dark:border-slate-700/50"
-        >
-    
-          <h2 className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-4">
-            Successfully Submitted!
-          </h2>
-          <p className="text-slate-600 dark:text-slate-400 text-lg">
-            Your MCQ round has been completed and submitted.
-          </p>
-        </motion.div>
-      </div>
+  <motion.div
+    initial={{ opacity: 0, scale: 0.9 }}
+    animate={{ opacity: 1, scale: 1 }}
+    className="w-full max-w-md bg-[#f0f0f3] dark:bg-[#1e1e2a] rounded-3xl p-8 shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_rgba(255,255,255,0.7)] dark:shadow-[6px_6px_12px_rgba(0,0,0,0.6),-6px_-6px_12px_rgba(255,255,255,0.05)] text-center"
+  >
+    <motion.h2
+      className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4"
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      Successfully Submitted!
+    </motion.h2>
+    <p className="text-gray-600 dark:text-gray-400 mb-6">
+      Your MCQ round has been completed and submitted.
+    </p>
+    <button
+      onClick={() => { /* handle action */ }}
+      className="px-6 py-3 rounded-xl bg-[#f0f0f3] dark:bg-[#1e1e2a]
+        text-gray-800 dark:text-gray-200
+        shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_rgba(255,255,255,0.7)]
+        dark:shadow-[6px_6px_12px_rgba(0,0,0,0.6),-6px_-6px_12px_rgba(255,255,255,0.05)]
+        hover:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.7)]
+        dark:hover:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.7),inset_-4px_-4px_8px_rgba(255,255,255,0.1)]
+        transition-all duration-300 transform hover:scale-105"
+    >
+      Back to Dashboard
+    </button>
+  </motion.div>
+</div>
+
     );
   }
 
@@ -335,7 +392,7 @@ const MCQRoundPage = () => {
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="max-w-2xl w-full bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-white/20 dark:border-slate-700/50 rounded-3xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] p-8"
+          className="max-w-2xl w-full bg-[#eff1f6] dark:bg-slate-800 rounded-2xl shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)] p-8"
         >
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -343,31 +400,57 @@ const MCQRoundPage = () => {
             </div>
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Round 1 — MCQ Test</h1>
             <p className="text-slate-600 dark:text-slate-400">Multiple Choice Question Assessment</p>
+            
+            {/* Timing Information */}
+            {questions.length > 0 && (
+              <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                <div className="flex items-center justify-center space-x-4 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-blue-600" />
+                    <span className="text-blue-800 dark:text-blue-300">
+                      {questions[0]?.startAt ? 
+                        `Starts: ${questions[0].startAt.toDate?.()?.toLocaleString() || new Date(questions[0].startAt).toLocaleString()}` : 
+                        'No start time set'
+                      }
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-red-600" />
+                    <span className="text-red-800 dark:text-red-300">
+                      {questions[0]?.endAt ? 
+                        `Ends: ${questions[0].endAt.toDate?.()?.toLocaleString() || new Date(questions[0].endAt).toLocaleString()}` : 
+                        'No end time set'
+                      }
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           
           <div className="space-y-4 mb-8">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Examination Rules:</h3>
-            <ul className="space-y-3 text-gray-700 dark:text-gray-300">
-              <li className="flex items-start p-3 bg-white/50 dark:bg-slate-700/50 rounded-xl shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] border border-white/30 dark:border-slate-600/30">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Examination Rules:</h3>
+            <ul className="space-y-3 text-slate-700 dark:text-slate-300">
+              <li className="flex items-start p-3 bg-[#f3f5fa] dark:bg-slate-700/50 rounded-xl shadow-[inset_4px_4px_8px_rgba(0,0,0,0.08),inset_-4px_-4px_8px_#ffffff] dark:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.05)] border border-white/30 dark:border-slate-600/30">
                 <Shield className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
                 <span>The test will run in full-screen mode for security</span>
               </li>
-              <li className="flex items-start p-3 bg-white/50 dark:bg-slate-700/50 rounded-xl shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] border border-white/30 dark:border-slate-600/30">
+              <li className="flex items-start p-3 bg-[#f3f5fa] dark:bg-slate-700/50 rounded-xl shadow-[inset_4px_4px_8px_rgba(0,0,0,0.08),inset_-4px_-4px_8px_#ffffff] dark:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.05)] border border-white/30 dark:border-slate-600/30">
                 <Monitor className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
                 <span>Do not switch tabs, minimize, or change windows</span>
               </li>
-              <li className="flex items-start p-3 bg-white/50 dark:bg-slate-700/50 rounded-xl shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] border border-white/30 dark:border-slate-600/30">
+              <li className="flex items-start p-3 bg-[#f3f5fa] dark:bg-slate-700/50 rounded-xl shadow-[inset_4px_4px_8px_rgba(0,0,0,0.08),inset_-4px_-4px_8px_#ffffff] dark:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.05)] border border-white/30 dark:border-slate-600/30">
                 <Clock className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
                 <span>Answer all questions within the time limit</span>
               </li>
-              <li className="flex items-start p-3 bg-white/50 dark:bg-slate-700/50 rounded-xl shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] border border-white/30 dark:border-slate-600/30">
+              <li className="flex items-start p-3 bg-[#f3f5fa] dark:bg-slate-700/50 rounded-xl shadow-[inset_4px_4px_8px_rgba(0,0,0,0.08),inset_-4px_-4px_8px_#ffffff] dark:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.05)] border border-white/30 dark:border-slate-600/30">
                 <AlertTriangle className="w-5 h-5 text-orange-500 mr-3 mt-0.5 flex-shrink-0" />
                 <span>Violations will be recorded and may result in exam rejection</span>
               </li>
             </ul>
           </div>
 
-          <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl p-4 mb-6 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] border border-blue-200/30 dark:border-blue-800/30">
+          <div className="bg-[#f3f5fa] dark:bg-slate-700/50 rounded-2xl p-4 mb-6 shadow-[inset_4px_4px_8px_rgba(0,0,0,0.08),inset_-4px_-4px_8px_#ffffff] dark:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.05)] border border-white/30 dark:border-slate-600/30">
             <div className="flex items-center space-x-3">
               <Target className="w-5 h-5 text-blue-600" />
               <div>
@@ -382,16 +465,16 @@ const MCQRoundPage = () => {
               <input
                 type="checkbox"
                 onChange={(e) => setAcceptedRules(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]"
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 shadow-[inset_2px_2px_4px_rgba(0,0,0,0.1)]"
               />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                 I have read and accept the examination rules
               </span>
             </label>
             <button
               onClick={() => setAcceptedRules(true)}
               disabled={!acceptedRules}
-              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:from-blue-600 hover:to-indigo-600 transition-all duration-300 shadow-[0_4px_8px_rgba(0,0,0,0.2)] hover:shadow-[0_6px_12px_rgba(0,0,0,0.3)] transform hover:scale-105"
+              className="px-6 py-3 bg-blue-600 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-all duration-300 shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] dark:shadow-[6px_6px_12px_rgba(0,0,0,0.4),-6px_-6px_12px_rgba(255,255,255,0.05)] hover:shadow-[8px_8px_16px_rgba(0,0,0,0.2),-8px_-8px_16px_#ffffff] transform hover:scale-[1.02]"
             >
               Continue
             </button>
@@ -407,25 +490,25 @@ const MCQRoundPage = () => {
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="max-w-xl w-full bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-white/20 dark:border-gray-700/50 rounded-3xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] p-8 text-center"
+          className="max-w-xl w-full bg-[#eff1f6] dark:bg-slate-800 rounded-2xl shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)] p-8 text-center"
         >
           <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Play className="w-10 h-10 text-white" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Ready to Begin?</h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-8">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Ready to Begin?</h2>
+          <p className="text-slate-600 dark:text-slate-400 mb-8">
             When you click "Start Exam", we will enable full-screen mode and begin the timer.
           </p>
           
-          <div className="bg-gradient-to-r from-gray-50/80 to-blue-50/60 dark:from-gray-700/80 dark:to-blue-900/20 rounded-2xl p-4 mb-8 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] border border-gray-200/30 dark:border-gray-600/30">
+          <div className="bg-[#f3f5fa] dark:bg-slate-700/50 rounded-2xl p-4 mb-8 shadow-[inset_4px_4px_8px_rgba(0,0,0,0.08),inset_-4px_-4px_8px_#ffffff] dark:shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.05)] border border-white/30 dark:border-slate-600/30">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{questions.length}</div>
-                <div className="text-gray-600 dark:text-gray-400">Questions</div>
+                <div className="text-slate-600 dark:text-slate-400">Questions</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600 dark:text-green-400">MCQ</div>
-                <div className="text-gray-600 dark:text-gray-400">Format</div>
+                <div className="text-slate-600 dark:text-slate-400">Format</div>
               </div>
             </div>
           </div>
@@ -433,14 +516,14 @@ const MCQRoundPage = () => {
           <div className="flex justify-center space-x-4">
             <button
               onClick={handleStart}
-              className="px-8 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl hover:from-blue-600 hover:to-indigo-600 transition-all duration-300 shadow-[0_4px_8px_rgba(0,0,0,0.2)] hover:shadow-[0_6px_12px_rgba(0,0,0,0.3)] transform hover:scale-105 flex items-center"
+              className="px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] dark:shadow-[6px_6px_12px_rgba(0,0,0,0.4),-6px_-6px_12px_rgba(255,255,255,0.05)] hover:shadow-[8px_8px_16px_rgba(0,0,0,0.2),-8px_-8px_16px_#ffffff] transform hover:scale-[1.02] flex items-center"
             >
               <Play className="w-5 h-5 mr-2" />
               Start Exam
             </button>
             <button
               onClick={() => setAcceptedRules(false)}
-              className="px-8 py-3 bg-white/70 dark:bg-slate-700/70 border border-slate-300/50 dark:border-slate-600/50 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-white/90 dark:hover:bg-slate-600/90 transition-all duration-300 shadow-[0_2px_4px_rgba(0,0,0,0.1)] hover:shadow-[0_4px_8px_rgba(0,0,0,0.15)]"
+              className="px-8 py-3 bg-[#f3f5fa] dark:bg-slate-700/70 border border-slate-300/50 dark:border-slate-600/50 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-[#e8ebf0] dark:hover:bg-slate-600/90 transition-all duration-300 shadow-[4px_4px_8px_rgba(0,0,0,0.1),-4px_-4px_8px_#ffffff] dark:shadow-[4px_4px_8px_rgba(0,0,0,0.3),-4px_-4px_8px_rgba(255,255,255,0.05)] hover:shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff]"
             >
               Back
             </button>
@@ -546,9 +629,9 @@ const MCQRoundPage = () => {
       {ExamHeader}
 
       <div className="max-w-4xl mx-auto p-6">
-        <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-3xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] border border-white/20 dark:border-slate-700/50 overflow-hidden">
+        <div className="bg-[#eff1f6] dark:bg-slate-800 rounded-2xl shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)] overflow-hidden">
           {/* Question Header */}
-          <div className="p-6 border-b border-white/20 dark:border-slate-700/50 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-slate-800/50 dark:to-slate-700/50 backdrop-blur-sm">
+          <div className="p-6 border-b border-slate-200 dark:border-slate-700 bg-[#f3f5fa] dark:bg-slate-700/50">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-1">
@@ -592,7 +675,7 @@ const MCQRoundPage = () => {
           </div>
 
           {/* Question Content */}
-          <div className="p-8 bg-gradient-to-br from-white/60 to-blue-50/30 dark:from-slate-800/60 dark:to-slate-700/30 backdrop-blur-sm">
+          <div className="p-8 bg-[#eff1f6] dark:bg-slate-800">
             <motion.div
               key={currentQuestionIndex}
               initial={{ opacity: 0, x: 20 }}
@@ -626,15 +709,15 @@ const MCQRoundPage = () => {
                       disabled={submitted}
                       className={`w-full p-4 text-left rounded-2xl transition-all duration-300 ${
                         isSelected
-                          ? "bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)] transform scale-[0.98]"
-                          : "bg-white/70 dark:bg-slate-700/70 shadow-[0_4px_8px_rgba(0,0,0,0.1)] hover:shadow-[0_6px_12px_rgba(0,0,0,0.15)] hover:bg-white/90 dark:hover:bg-slate-600/90 border border-white/30 dark:border-slate-600/30"
+                          ? "bg-blue-600 text-white shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.1)] transform scale-[0.98]"
+                          : "bg-[#f3f5fa] dark:bg-slate-700/70 shadow-[4px_4px_8px_rgba(0,0,0,0.1),-4px_-4px_8px_#ffffff] dark:shadow-[4px_4px_8px_rgba(0,0,0,0.3),-4px_-4px_8px_rgba(255,255,255,0.05)] hover:shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] dark:hover:shadow-[6px_6px_12px_rgba(0,0,0,0.4),-6px_-6px_12px_rgba(255,255,255,0.05)] hover:bg-[#e8ebf0] dark:hover:bg-slate-600/90 border border-white/30 dark:border-slate-600/30"
                       }`}
                     >
                       <div className="flex items-start space-x-4">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
                           isSelected
-                            ? "bg-white/20 text-white shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]"
-                            : "bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-600 dark:to-slate-700 text-slate-700 dark:text-slate-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]"
+                            ? "bg-white/20 text-white shadow-[inset_2px_2px_4px_rgba(0,0,0,0.2)]"
+                            : "bg-[#f3f5fa] dark:bg-slate-600 text-slate-700 dark:text-slate-300 shadow-[inset_2px_2px_4px_rgba(0,0,0,0.1),inset_-2px_-2px_4px_#ffffff] dark:shadow-[inset_2px_2px_4px_rgba(0,0,0,0.3),inset_-2px_-2px_4px_rgba(255,255,255,0.05)]"
                         }`}>
                           {optionLetter}
                         </div>
@@ -655,7 +738,7 @@ const MCQRoundPage = () => {
           </div>
 
           {/* Navigation Footer */}
-          <div className="p-6 border-t border-white/20 dark:border-slate-700/50 bg-gradient-to-r from-slate-50/80 to-blue-50/60 dark:from-slate-700/80 dark:to-slate-600/60 backdrop-blur-sm">
+          <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-[#f3f5fa] dark:bg-slate-700/50">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <span className="text-sm text-slate-600 dark:text-slate-400">
@@ -673,7 +756,7 @@ const MCQRoundPage = () => {
                 {currentQuestionIndex > 0 && (
                   <button
                     onClick={() => setCurrentQuestionIndex(currentQuestionIndex - 1)}
-                    className="px-4 py-2 bg-white/70 dark:bg-slate-700/70 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-white/90 dark:hover:bg-slate-600/90 transition-all duration-300 shadow-[0_2px_4px_rgba(0,0,0,0.1)] hover:shadow-[0_4px_8px_rgba(0,0,0,0.15)] border border-white/30 dark:border-slate-600/30"
+                    className="px-4 py-2 bg-[#f3f5fa] dark:bg-slate-700/70 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-[#e8ebf0] dark:hover:bg-slate-600/90 transition-all duration-300 shadow-[4px_4px_8px_rgba(0,0,0,0.1),-4px_-4px_8px_#ffffff] dark:shadow-[4px_4px_8px_rgba(0,0,0,0.3),-4px_-4px_8px_rgba(255,255,255,0.05)] hover:shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] border border-white/30 dark:border-slate-600/30"
                   >
                     Previous
                   </button>
@@ -682,7 +765,7 @@ const MCQRoundPage = () => {
                 {currentQuestionIndex < questions.length - 1 ? (
                   <button
                     onClick={() => setCurrentQuestionIndex(currentQuestionIndex + 1)}
-                    className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl hover:from-blue-600 hover:to-indigo-600 transition-all duration-300 shadow-[0_4px_8px_rgba(0,0,0,0.2)] hover:shadow-[0_6px_12px_rgba(0,0,0,0.3)] transform hover:scale-105"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] dark:shadow-[6px_6px_12px_rgba(0,0,0,0.4),-6px_-6px_12px_rgba(255,255,255,0.05)] hover:shadow-[8px_8px_16px_rgba(0,0,0,0.2),-8px_-8px_16px_#ffffff] transform hover:scale-[1.02]"
                   >
                     Next
                   </button>
@@ -690,7 +773,7 @@ const MCQRoundPage = () => {
                   <button
                     onClick={handleSubmit}
                     disabled={loading || answeredCount === 0}
-                    className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:from-green-600 hover:to-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-[0_4px_8px_rgba(0,0,0,0.2)] hover:shadow-[0_6px_12px_rgba(0,0,0,0.3)] transform hover:scale-105 flex items-center"
+                    className="px-6 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] dark:shadow-[6px_6px_12px_rgba(0,0,0,0.4),-6px_-6px_12px_rgba(255,255,255,0.05)] hover:shadow-[8px_8px_16px_rgba(0,0,0,0.2),-8px_-8px_16px_#ffffff] transform hover:scale-[1.02] flex items-center"
                   >
                     {loading ? (
                       <>
@@ -711,7 +794,7 @@ const MCQRoundPage = () => {
         </div>
 
         {/* Question Overview */}
-        <div className="mt-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-3xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] border border-white/20 dark:border-slate-700/50 p-6">
+        <div className="mt-6 bg-[#eff1f6] dark:bg-slate-800 rounded-2xl shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)] p-6">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Question Overview</h3>
                       <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
               {questions.map((_, index) => (
@@ -720,10 +803,10 @@ const MCQRoundPage = () => {
                   onClick={() => setCurrentQuestionIndex(index)}
                   className={`w-10 h-10 rounded-xl text-sm font-medium transition-all duration-300 ${
                     index === currentQuestionIndex
-                      ? "bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-[inset_0_2px_4px_rgba(0,0,0,0.2)] transform scale-95"
+                      ? "bg-blue-600 text-white shadow-[inset_4px_4px_8px_rgba(0,0,0,0.2),inset_-4px_-4px_8px_rgba(255,255,255,0.1)] transform scale-95"
                       : answers[questions[index].id]
-                      ? "bg-gradient-to-r from-blue-100 to-indigo-100 dark:from-blue-900/50 dark:to-indigo-900/50 text-blue-800 dark:text-blue-300 shadow-[0_2px_4px_rgba(0,0,0,0.1)] hover:shadow-[0_4px_8px_rgba(0,0,0,0.15)] hover:bg-gradient-to-r hover:from-blue-200 hover:to-indigo-200"
-                      : "bg-white/70 dark:bg-slate-700/70 text-slate-600 dark:text-slate-400 shadow-[0_2px_4px_rgba(0,0,0,0.1)] hover:shadow-[0_4px_8px_rgba(0,0,0,0.15)] hover:bg-white/90 dark:hover:bg-slate-600/90 border border-white/30 dark:border-slate-600/30"
+                      ? "bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 shadow-[4px_4px_8px_rgba(0,0,0,0.1),-4px_-4px_8px_#ffffff] dark:shadow-[4px_4px_8px_rgba(0,0,0,0.3),-4px_-4px_8px_rgba(255,255,255,0.05)] hover:shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] hover:bg-blue-200 dark:hover:bg-blue-800/70"
+                      : "bg-[#f3f5fa] dark:bg-slate-700/70 text-slate-600 dark:text-slate-400 shadow-[4px_4px_8px_rgba(0,0,0,0.1),-4px_-4px_8px_#ffffff] dark:shadow-[4px_4px_8px_rgba(0,0,0,0.3),-4px_-4px_8px_rgba(255,255,255,0.05)] hover:shadow-[6px_6px_12px_rgba(0,0,0,0.15),-6px_-6px_12px_#ffffff] hover:bg-[#e8ebf0] dark:hover:bg-slate-600/90 border border-white/30 dark:border-slate-600/30"
                   }`}
                 >
                   {index + 1}
@@ -732,15 +815,15 @@ const MCQRoundPage = () => {
             </div>
           <div className="mt-4 flex items-center space-x-6 text-sm">
             <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-gradient-to-r from-blue-500 to-indigo-500 rounded shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]"></div>
+              <div className="w-4 h-4 bg-blue-600 rounded shadow-[inset_2px_2px_4px_rgba(0,0,0,0.2),inset_-2px_-2px_4px_rgba(255,255,255,0.1)]"></div>
               <span className="text-slate-600 dark:text-slate-400">Current</span>
             </div>
             <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-gradient-to-r from-blue-100 to-indigo-100 dark:from-blue-900/50 dark:to-indigo-900/50 border border-blue-300 dark:border-blue-700 rounded shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]"></div>
+              <div className="w-4 h-4 bg-blue-100 dark:bg-blue-900/50 border border-blue-300 dark:border-blue-700 rounded shadow-[2px_2px_4px_rgba(0,0,0,0.1),-2px_-2px_4px_#ffffff] dark:shadow-[2px_2px_4px_rgba(0,0,0,0.3),-2px_-2px_4px_rgba(255,255,255,0.05)]"></div>
               <span className="text-slate-600 dark:text-slate-400">Answered</span>
             </div>
             <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-white/70 dark:bg-slate-700/70 border border-white/30 dark:border-slate-600/30 rounded shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]"></div>
+              <div className="w-4 h-4 bg-[#f3f5fa] dark:bg-slate-700/70 border border-white/30 dark:border-slate-600/30 rounded shadow-[2px_2px_4px_rgba(0,0,0,0.1),-2px_-2px_4px_#ffffff] dark:shadow-[2px_2px_4px_rgba(0,0,0,0.3),-2px_-2px_4px_rgba(255,255,255,0.05)]"></div>
               <span className="text-slate-600 dark:text-slate-400">Not Answered</span>
             </div>
           </div>

@@ -33,6 +33,8 @@ const Dashboard = () => {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState(false);
   const [showAddQuestion, setShowAddQuestion] = useState(false);
+  const [startAt, setStartAt] = useState("");
+  const [endAt, setEndAt] = useState("");
 
   // Dashboard metrics
   const [totalQuestions, setTotalQuestions] = useState(0);
@@ -62,14 +64,58 @@ const Dashboard = () => {
         
         const employeesList = employeesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         const authUsersList = authUsersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        
-        // Create a combined list with both employee IDs and Firebase Auth UIDs
-        const combinedUsers = employeesList.map(emp => ({
-          ...emp,
-          authUid: authUsersList.find(auth => (auth as any).email === emp.email)?.id || emp.id
-        }));
-        
-        setUsers(combinedUsers);
+
+        // Build a map by email to ensure we always have a real Auth UID
+        const byEmail: Record<string, any> = {};
+
+        // Seed from auth users collection (these ids are real Firebase Auth UIDs)
+        (authUsersList as any[]).forEach((u: any) => {
+          if (!u?.email) return;
+          byEmail[u.email] = {
+            id: u.id,
+            email: u.email,
+            name: u.fullName || u.email,
+            title: u.role || 'Member',
+            department: u.department || '',
+            status: u.status || 'active',
+            authUid: u.id,
+          };
+        });
+
+        // Merge/augment with employees collection to enrich display fields
+        (employeesList as any[]).forEach((emp: any) => {
+          if (emp?.email && byEmail[emp.email]) {
+            byEmail[emp.email] = {
+              ...byEmail[emp.email],
+              // Prefer richer profile data from employees
+              name: emp.name || byEmail[emp.email].name,
+              title: emp.title || byEmail[emp.email].title,
+              department: emp.department || byEmail[emp.email].department,
+              location: emp.location || byEmail[emp.email].location,
+              phone: emp.phone || byEmail[emp.email].phone,
+              photo: emp.photo || byEmail[emp.email].photo,
+              status: emp.status || byEmail[emp.email].status,
+            };
+          } else if (emp?.email) {
+            // If no auth record exists for this email, include only for display, but DO NOT use employee doc id as authUid
+            // This avoids assigning questions to a non-auth UID
+            byEmail[emp.email] = {
+              id: emp.id,
+              email: emp.email,
+              name: emp.name || emp.email,
+              title: emp.title || 'Employee',
+              department: emp.department || '',
+              location: emp.location,
+              phone: emp.phone,
+              photo: emp.photo,
+              status: emp.status || 'inactive',
+              authUid: undefined,
+            };
+          }
+        });
+
+        const combinedUsers = Object.values(byEmail);
+        setUsers(combinedUsers as any[]);
         setTotalUsers(combinedUsers.length);
 
         // Fetch questions
@@ -135,7 +181,8 @@ const Dashboard = () => {
     if (selectAll) {
       setSelectedUsers([]);
     } else {
-      setSelectedUsers(users.map((u) => u.authUid));
+      // Only include users that have a valid authUid (actual Firebase Auth user)
+      setSelectedUsers(users.filter((u: any) => !!u.authUid).map((u: any) => u.authUid));
     }
     setSelectAll(!selectAll);
   };
@@ -196,6 +243,10 @@ const Dashboard = () => {
       alert("⚠️ Select at least one user");
       return;
     }
+    if (!startAt || !endAt) {
+      alert("⚠️ Start time and End time are required");
+      return;
+    }
 
     const data: any = {
       type,
@@ -232,6 +283,13 @@ const Dashboard = () => {
     }
 
     try {
+      // Add optional scheduling windows
+      if (startAt) {
+        data.startAt = new Date(startAt);
+      }
+      if (endAt) {
+        data.endAt = new Date(endAt);
+      }
       await addDoc(collection(db, "questions"), data);
       
       // Log activity
@@ -272,6 +330,8 @@ const Dashboard = () => {
     setExamples([{ input: "", output: "", explanation: "" }]);
     setSelectedUsers([]);
     setSelectAll(false);
+    setStartAt("");
+    setEndAt("");
   };
 
   const statCards = [
@@ -460,42 +520,7 @@ const Dashboard = () => {
       </div>
 
       {/* Recent Activity */}
-      <div className="rounded-2xl bg-[#eff1f6] shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:bg-slate-800 dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)]">
-        <div className="p-6 border-b border-transparent">
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Recent Activity</h2>
-        </div>
-        <div className="p-6">
-          {recentActivities.length === 0 ? (
-            <div className="text-center py-8">
-              <Activity className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">No recent activity</h3>
-              <p className="text-slate-600 dark:text-slate-400">Activity will appear here as users interact with the system.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {recentActivities.map((activity, index) => (
-                <motion.div
-                  key={activity.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="flex items-center space-x-4 p-4 rounded-xl transition-all duration-300 hover:-translate-y-0.5 bg-[#eff1f6] shadow-[6px_6px_12px_rgba(0,0,0,0.12),-6px_-6px_12px_#ffffff] dark:bg-slate-800 dark:shadow-[6px_6px_12px_rgba(0,0,0,0.6),-6px_-6px_12px_rgba(255,255,255,0.05)]"
-                >
-                  <div className="p-2 rounded-lg bg-[#f3f5fa] shadow-[inset_3px_3px_6px_rgba(0,0,0,0.08),inset_-3px_-3px_6px_#ffffff] dark:bg-slate-700 text-blue-600">
-                    <Activity className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-slate-900 dark:text-white font-medium">{activity.action}</p>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm">
-                      {activity.created_at?.toDate?.()?.toLocaleString() || 'Recently'}
-                    </p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      
 
       {/* Add Question Modal - keeping existing modal code for brevity */}
       {showAddQuestion && (
@@ -566,6 +591,28 @@ const Dashboard = () => {
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   placeholder="Enter a concise question title"
                 />
+              </div>
+
+              {/* Scheduling (optional) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Start Time (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={startAt}
+                    onChange={(e) => setStartAt(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">End Time (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={endAt}
+                    onChange={(e) => setEndAt(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
               </div>
 
               <div>
@@ -700,8 +747,9 @@ const Dashboard = () => {
                       <label key={user.authUid} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                         <input
                           type="checkbox"
-                          checked={selectedUsers.includes(user.authUid)}
-                          onChange={() => handleUserSelect(user.authUid)}
+                          disabled={!user.authUid}
+                          checked={!!user.authUid && selectedUsers.includes(user.authUid)}
+                          onChange={() => user.authUid && handleUserSelect(user.authUid)}
                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                         <div>

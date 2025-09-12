@@ -329,6 +329,20 @@ export const getRecentActivity = async () => {
   }
 };
 
+// Returns server time by writing a transient doc with serverTimestamp and reading it back
+export const getServerTime = async (): Promise<Date> => {
+  try {
+    const ref = doc(db, "__meta", "server_time_probe");
+    await setDoc(ref, { now: serverTimestamp() }, { merge: true });
+    const snap = await getDoc(ref);
+    const ts = (snap.data() as any)?.now;
+    const date = ts?.toDate?.();
+    return date instanceof Date ? date : new Date();
+  } catch {
+    return new Date();
+  }
+};
+
 // Helper function for default permissions
 function getRoleDefaultPermissions(role: Role): string[] {
   switch (role) {

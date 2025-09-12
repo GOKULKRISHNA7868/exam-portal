@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { doc, getDoc, setDoc, collection, addDoc } from "firebase/firestore";
-import { db, auth } from "../lib/firebase";
+import { doc, getDoc, setDoc, collection, addDoc, getDocs } from "firebase/firestore";
+import { db, auth, getServerTime } from "../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { motion } from "framer-motion";
 import {
@@ -31,7 +31,7 @@ interface CommunicationTest {
 }
 
 const TakeCommunicationRound: React.FC = () => {
-  const [test, setTest] = useState<CommunicationTest | null>(null);
+  const [test, setTest] = useState<(CommunicationTest & { id?: string }) | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [currentQ, setCurrentQ] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -48,6 +48,8 @@ const TakeCommunicationRound: React.FC = () => {
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [violations, setViolations] = useState(0);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
+  const [remainingSec, setRemainingSec] = useState<number | null>(null);
+  const warnShownRef = useRef(false);
 
   const timerRef = useRef<number | null>(null);
   const speechRef = useRef<any>(null);
@@ -64,25 +66,28 @@ const TakeCommunicationRound: React.FC = () => {
   useEffect(() => {
     const fetchTest = async () => {
       try {
-        // Try to fetch user-specific communication test first
-        if (userId) {
-          const userTestRef = doc(db, "communicationTests", userId);
-          const userTestSnap = await getDoc(userTestRef);
-          if (userTestSnap.exists()) {
-            const testData = userTestSnap.data() as CommunicationTest;
-            setTest(testData);
-            setResponses(new Array(testData.questions.length).fill(""));
-            return;
-          }
-        }
-        
-        // Fallback to default test
-        const ref = doc(db, "COMMUNICATIONTEST", "5APVrNkKUb3qprzxehmz");
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const testData = snap.data() as CommunicationTest;
+        if (!userId) return;
+        const [snap, now] = await Promise.all([getDocs(collection(db, "COMMUNICATIONTEST")), getServerTime()]);
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...(d.data() as any) }))
+          .filter((t: any) => {
+            const assigned = Array.isArray(t.assigned) ? t.assigned : [];
+            const inAssignees = assigned.includes(userId);
+            const startOk = !t.startAt || (t.startAt?.toDate?.() || new Date(t.startAt)) <= now;
+            const endOk = !t.endAt || (t.endAt?.toDate?.() || new Date(t.endAt)) >= now;
+            return inAssignees && startOk && endOk;
+          });
+        if (list.length > 0) {
+          const testData = list[0] as any;
           setTest(testData);
-          setResponses(new Array(testData.questions.length).fill(""));
+          setResponses(new Array((testData.questions || []).length).fill(""));
+          if (testData.endAt) {
+            const endMs = (testData.endAt?.toDate?.()?.getTime?.() || new Date(testData.endAt).getTime());
+            const base = Math.max(0, Math.floor((endMs - now.getTime()) / 1000));
+            setRemainingSec(base);
+          } else {
+            setRemainingSec(null);
+          }
         }
       } catch (error) {
         console.error("Error fetching test:", error);
@@ -335,6 +340,32 @@ const TakeCommunicationRound: React.FC = () => {
     }
   };
 
+  // Global countdown with 1-minute warning and auto-complete
+  useEffect(() => {
+    if (completed) return;
+    if (remainingSec == null) return;
+    const id = window.setInterval(() => {
+      setRemainingSec((s) => {
+        if (s == null) return s;
+        const next = s - 1;
+        if (next === 60 && !warnShownRef.current) {
+          warnShownRef.current = true;
+          if (soundEnabled) {
+            const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj");
+            audio.play().catch(() => {});
+          }
+        }
+        if (next <= 0) {
+          window.clearInterval(id);
+          handleComplete();
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [remainingSec, completed, soundEnabled]);
+
   const readQuestion = (question: string) => {
     if ('speechSynthesis' in window) {
       setIsPlaying(true);
@@ -430,6 +461,32 @@ const TakeCommunicationRound: React.FC = () => {
           <p className="text-slate-600 dark:text-slate-400">
             Voice-based Communication Test
           </p>
+          
+          {/* Timing Information */}
+          {test && (
+            <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-center space-x-4 text-sm">
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-blue-600" />
+                  <span className="text-blue-800 dark:text-blue-300">
+                    {test.startAt ? 
+                      `Starts: ${test.startAt.toDate?.()?.toLocaleString() || new Date(test.startAt).toLocaleString()}` : 
+                      'No start time set'
+                    }
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-red-600" />
+                  <span className="text-red-800 dark:text-red-300">
+                    {test.endAt ? 
+                      `Ends: ${test.endAt.toDate?.()?.toLocaleString() || new Date(test.endAt).toLocaleString()}` : 
+                      'No end time set'
+                    }
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Instructions */}
