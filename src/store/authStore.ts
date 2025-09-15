@@ -21,7 +21,7 @@ interface UserData {
 // Helper function to determine user role based on email
 const getUserRole = (email: string | null): 'hr' | 'user' => {
   if (!email) return 'user';
-  return email.toLowerCase() === '22691a3221@mits.ac.in' ? 'hr' : 'user';
+  return email.toLowerCase() === 'hr@enkonix.in' ? 'hr' : 'user';
 };
 
 interface AuthState {

@@ -43,6 +43,8 @@ type Question = {
   memoryLimit?: number;
   codeTemplate?: string;
   difficulty?: string;
+  startAt?: any;
+  endAt?: any;
 };
 
 type RunResult = {
@@ -414,6 +416,27 @@ out, err
     setRunningNow(false);
   };
 
+  // Auto-run when code/stdin/lang changes (and runtime is ready for Python)
+  useEffect(() => {
+    if (!autoRun || !currentQuestion) return;
+    if (langId === "python" && !pyReady) return;
+    const id = window.setTimeout(() => {
+      handleRun();
+    }, 600);
+    return () => window.clearTimeout(id);
+  }, [autoRun, currentQuestion?.id, code, stdin, langId, pyReady]);
+
+  // Ensure a run happens immediately after Pyodide finishes loading
+  useEffect(() => {
+    if (!autoRun) return;
+    if (!currentQuestion) return;
+    if (langId !== "python") return;
+    if (!pyReady) return;
+    handleRun();
+    // Only react to pyReady flip for this immediate run
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pyReady]);
+
   const submit = async () => {
     if (!currentQuestion || !uid || submittedQuestions.has(currentQuestion.id)) return;
 
@@ -600,12 +623,18 @@ out, err
   // Gated screens
   if (!questions.length) {
     return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center">
-          <Code className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No coding questions assigned</h3>
+      <div className="min-h-[70vh] flex items-center justify-center p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="max-w-2xl w-full bg-[#eff1f6] dark:bg-slate-800 rounded-2xl shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)] p-8 text-center"
+        >
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Code className="w-8 h-8 text-white" />
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No coding questions assigned</h3>
           <p className="text-gray-600 dark:text-gray-400">Please contact your administrator.</p>
-        </div>
+        </motion.div>
       </div>
     );
   }

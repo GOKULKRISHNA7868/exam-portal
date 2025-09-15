@@ -28,6 +28,8 @@ interface CommunicationTest {
   description: string;
   instructions: string;
   questions: string[];
+  startAt?: any;
+  endAt?: any;
 }
 
 const TakeCommunicationRound: React.FC = () => {
@@ -396,11 +398,18 @@ const TakeCommunicationRound: React.FC = () => {
 
   if (!test) {
     return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center">
-          <div className="animate-spin w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading communication test...</p>
-        </div>
+      <div className="min-h-[70vh] flex items-center justify-center p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="max-w-2xl w-full bg-[#eff1f6] dark:bg-slate-800 rounded-2xl shadow-[8px_8px_16px_rgba(0,0,0,0.12),-8px_-8px_16px_#ffffff] dark:shadow-[8px_8px_16px_rgba(0,0,0,0.6),-8px_-8px_16px_rgba(255,255,255,0.05)] p-8 text-center"
+        >
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <MessageCircle className="w-8 h-8 text-white" />
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No communication test assigned</h3>
+          <p className="text-gray-600 dark:text-gray-400">Please contact your administrator.</p>
+        </motion.div>
       </div>
     );
   }

@@ -17,14 +17,16 @@ import {
   Timestamp,
   updateDoc,
 } from "firebase/firestore";
+
+
 const firebaseConfig = {
-  apiKey: "AIzaSyDn2e0xq_v2detiSzmUguUhnBOP-lr5iQ4",
-  authDomain: "eaxm-drive.firebaseapp.com",
-  projectId: "eaxm-drive",
-  storageBucket: "eaxm-drive.firebasestorage.app",
-  messagingSenderId: "593524487570",
-  appId: "1:593524487570:web:9460ff10f5a5f6a7d77d4b",
-  measurementId: "G-SKSE7ZDFEG",
+  apiKey: "AIzaSyAs3oyeDJ12KHYakwqD0Aglb6T5zUokkVQ",
+  authDomain: "testing-exam-portal.firebaseapp.com",
+  projectId: "testing-exam-portal",
+  storageBucket: "testing-exam-portal.firebasestorage.app",
+  messagingSenderId: "1091896995016",
+  appId: "1:1091896995016:web:05bb2a54263569478dc9fd",
+  measurementId: "G-GCS51YQXD1"
 };
 
 const app = initializeApp(firebaseConfig);

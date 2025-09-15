@@ -671,7 +671,7 @@ function UserManagement() {
                     try {
                       // Create Firebase Auth user with default password
                       const defaultPassword = "123456";
-                      const userRole = newEmail.toLowerCase() === "22691a3221@mits.ac.in" ? ROLES.HR : ROLES.MEMBER;
+                      const userRole = newEmail.toLowerCase() === "hr@enkonix.in" ? ROLES.HR : ROLES.MEMBER;
                       
                       await createNewUser({
                         email: newEmail,

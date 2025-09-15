@@ -247,6 +247,10 @@ const Dashboard = () => {
       alert("⚠️ Start time and End time are required");
       return;
     }
+    if (new Date(endAt) <= new Date(startAt)) {
+      alert("⚠️ End time must be after Start time");
+      return;
+    }
 
     const data: any = {
       type,
@@ -610,6 +614,7 @@ const Dashboard = () => {
                     type="datetime-local"
                     value={endAt}
                     onChange={(e) => setEndAt(e.target.value)}
+                    min={startAt || undefined}
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   />
                 </div>
@@ -674,7 +679,7 @@ const Dashboard = () => {
                 </div>
               )}
 
-              {/* Coding Section - Simplified for space */}
+              {/* Coding Section */}
               {type === "code" && (
                 <div className="space-y-4">
                   <div>
@@ -687,6 +692,19 @@ const Dashboard = () => {
                       rows={4}
                       className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                       placeholder="Detailed problem statement shown to candidates"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Constraints
+                    </label>
+                    <textarea
+                      value={constraints}
+                      onChange={(e) => setConstraints(e.target.value)}
+                      rows={2}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                      placeholder="e.g. 1 <= n <= 1000"
                     />
                   </div>
 
@@ -723,9 +741,93 @@ const Dashboard = () => {
                         value={sampleOutput}
                         onChange={(e) => setSampleOutput(e.target.value)}
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                        placeholder="e.g. 120"
+                        placeholder="e.g. Yes"
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Examples
+                    </label>
+                    {examples.map((ex, i) => (
+                      <div key={i} className="border border-gray-300 dark:border-gray-600 rounded p-3 bg-gray-50 dark:bg-gray-700/30">
+                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Example #{i + 1}</p>
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded mb-2 dark:bg-gray-700 dark:text-white"
+                          placeholder="Input"
+                          value={ex.input}
+                          onChange={(e) => {
+                            const updated = [...examples];
+                            updated[i].input = e.target.value;
+                            setExamples(updated);
+                          }}
+                        />
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded mb-2 dark:bg-gray-700 dark:text-white"
+                          placeholder="Output"
+                          value={ex.output}
+                          onChange={(e) => {
+                            const updated = [...examples];
+                            updated[i].output = e.target.value;
+                            setExamples(updated);
+                          }}
+                        />
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                          placeholder="Explanation (optional)"
+                          value={ex.explanation}
+                          onChange={(e) => {
+                            const updated = [...examples];
+                            updated[i].explanation = e.target.value;
+                            setExamples(updated);
+                          }}
+                        />
+                      </div>
+                    ))}
+                    <button
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                      onClick={() => setExamples([...examples, { input: "", output: "", explanation: "" }])}
+                    >
+                      ➕ Add Another Example
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Test Cases
+                    </label>
+                    {testCases.map((tc, i) => (
+                      <div key={i} className="border border-gray-300 dark:border-gray-600 rounded p-3 bg-gray-50 dark:bg-gray-700/30">
+                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Test Case #{i + 1}</p>
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded mb-2 dark:bg-gray-700 dark:text-white"
+                          placeholder="Input"
+                          value={tc.input}
+                          onChange={(e) => {
+                            const updated = [...testCases];
+                            updated[i].input = e.target.value;
+                            setTestCases(updated);
+                          }}
+                        />
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                          placeholder="Expected Output"
+                          value={tc.expectedOutput}
+                          onChange={(e) => {
+                            const updated = [...testCases];
+                            updated[i].expectedOutput = e.target.value;
+                            setTestCases(updated);
+                          }}
+                        />
+                      </div>
+                    ))}
+                    <button
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                      onClick={() => setTestCases([...testCases, { input: "", expectedOutput: "" }])}
+                    >
+                      ➕ Add Another Test Case
+                    </button>
                   </div>
                 </div>
               )}
